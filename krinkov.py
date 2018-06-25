@@ -10,15 +10,9 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# 
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#----------------------------------------------------------------------
-# 
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#----------------------------------------------------------------------
 #
 # Krinkov uses TCP Wrapper to filter connections.
 #
@@ -82,7 +76,7 @@ ban_expire = 600
 #year_order = 6
 
 # Uncomment and use this for Ubuntu 16.04:
-date_order = 2
+date_order = 3
 time_order = 4
 year_order = 6
 
@@ -102,18 +96,25 @@ year_order = 6
 ########## Port Rotation Settings ###############
 #################################################
 
-# Uncomment next line to activate port rotation:
-check_ssh_port()
+# Set Allow_Port_Rotation to True to enable.
+# Change to False to disable.
+
+Allow_Port_Rotation = True
+
+# *NOTE
+# Make sure you uncomment the "Port 22' line on your
+# /etc/ssh/sshd_config file.
+
 
 # If enabled, SSH port will change throughout the day.
 # Times are set in source code.
 
 # Enter port numbers you want to use.  You can use a port more 
 # than once.
-p1 = "9110"  #port will be active from 00:00 - 06:00 AM
-p2 = "9110"  #port will be active from 06:01 - 12:00 PM
-p3 = "9111"  #port will be active from 12:01 - 06:00 PM
-p4 = "9111"  #port will be active from 06:01 - 11:59 AM
+p1 = "922"  #port will be active from 00:00 - 06:00 AM
+p2 = "922"  #port will be active from 06:01 - 12:00 PM
+p3 = "923"  #port will be active from 12:01 - 06:00 PM
+p4 = "923"  #port will be active from 06:01 - 11:59 AM
 
 # Program must start SSH daemon to change ports
 # Make sure you uncomment the correct command for your OS:
@@ -262,7 +263,7 @@ def run_cmd_line():
         print("\nError when running SSH restart command.")
 
 def replace(port_number, correct_port):
-    for line in fileinput.input("/etc/ssh/sshd_config", inplace = 1): 
+    for line in fileinput.input("/etc/ssh/sshd_config", inplace = 1):
         print line.replace(port_number, str(correct_port)).rstrip()
         # added .rstrip() so that new lines are not created
     print("Updated port.")
@@ -270,7 +271,7 @@ def replace(port_number, correct_port):
 
 def rotate_ssh_port(port_number):
     dt = datetime.now()
-    
+
     # first port(p1) will be active at time ranging from 00:00 - 06:00 AM
     # (p2) port will be active from 06:01 - 12:00 PM
     t1 = [time(00,00), time(06,01), time(12,01), time(18,01)]
@@ -295,4 +296,6 @@ def check_ssh_port():
             print("Current port number: " + port_number)
             rotate_ssh_port(port_number)
 
-# check_ssh_port() called in Port Rotation Settings above
+# Enable Port Rotation
+if Allow_Port_Rotation == True:
+    check_ssh_port()
