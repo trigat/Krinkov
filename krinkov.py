@@ -3,7 +3,7 @@
 #
 #             Simple SSH firewall for Unix/Linux.
 #
-#      Copyright (C) 2018, Josh M <trigat@protonmail.com>                     
+#      Copyright (C) 2018, Josh M <trigat@protonmail.com>
 #
 #----------------------------------------------------------------------
 # This program is free software: you can redistribute it and/or modify
@@ -76,6 +76,7 @@ ban_expire = 600
 #year_order = 6
 
 # Uncomment and use this for Ubuntu 16.04:
+# date_order may be 2 in different versions
 date_order = 3
 time_order = 4
 year_order = 6
@@ -96,17 +97,19 @@ year_order = 6
 ########## Port Rotation Settings ###############
 #################################################
 
+# If enabled, SSH port will change throughout the day.
+
 # Set Allow_Port_Rotation to True to enable.
 # Change to False to disable.
 
 Allow_Port_Rotation = True
-
-# *NOTE
+# *NOTE*
 # Make sure you uncomment the "Port 22' line on your
 # /etc/ssh/sshd_config file.
 
+# Example: Once 6:00 AM comes, if someone attempts to log in,
+# SSH will switch to your second port choice. (p2)
 
-# If enabled, SSH port will change throughout the day.
 # Times are set in source code.
 
 # Enter port numbers you want to use.  You can use a port more 
@@ -154,6 +157,7 @@ def ban_time_elapse(t1, t2):
 def clean_hosts():
     try:
         with open('/etc/hosts.allow', 'r') as f, open('/etc/hosts2.allow', 'w') as f2:
+            # checks for line that starts with '###'
             reg = re.compile('###\s+\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
                              '.+(\d{4}-\d{2}-\d{2}\s\d{2}'
                              ':\d{2}:\d{2}.\d{0,})\s###')
@@ -164,13 +168,13 @@ def clean_hosts():
                     continue  # Don't do anything with this line
 
                 m = reg.match(line)
-                if m:
+                if m:                # get date from line we grabbed
                     t2 = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S.%f")
                     t1 = present
                     check_time = ban_time_elapse(t1, t2)
                     seconds_lapsed = get_sec_short(str(check_time))
                     print(seconds_lapsed)
-                    if seconds_lapsed > ban_expire:
+                    if seconds_lapsed > ban_expire: # ban_expire is set by user
                         skipline = 2  # leave out this line & next
                     else:
                         print("Ban has not expired.")
@@ -190,28 +194,28 @@ def update_hosts_allow(x1):
     try:
         with open('/etc/hosts.allow', 'r') as orig:
             data = orig.read()
-        with open('/etc/hosts.allow', 'w') as mod:
+        with open('/etc/hosts.allow', 'w') as mod:  # write line to ban IP address
             mod.write('### ' + x1 + ' banned @ ' + str(present) + ' ###\nsshd : ' + x1 \
                 + ' : spawn /bin/echo "%a $(date)" >> /var/log/krinkov.log && python /etc/krinkov.py : DENY\n\n' + data)
     except OSError as e:
         print (e)
     clean_hosts()
 
-def get_sec_long(time_str):
+def get_sec_long(time_str):  # converts date and time string to seconds
     y, d, h, m, s = time_str.split(':')
     return int(y) * 31536000 + int(d) * 86400 + int(h) * 3600 + int(m) * 60 + int(s)
 
-def run_main():
+def run_main():  # STARTING HERE
     try:
         logfile = open('/var/log/krinkov.log', 'r')
         line_number = dict()
-        for index,line in enumerate(logfile,1):
-            if line in ['\n', '\r\n']:  # Error Checking: if not enough lines in log
+        for index,line in enumerate(logfile,1):  # scan lines
+            if line in ['\n', '\r\n']:  # Error Checking: if not enough lines in var .log
                 print("Not enough IP addresses in log to compare.")
                 clean_hosts()
                 return
             if line:
-                x1 = line.split()[0]
+                x1 = line.split()[0]  # if line, get IP address
                 log_day  = line.split()[date_order]
                 log_time = line.split()[time_order]  # This will already be in the format of hh:mm:ss
                 log_year = line.split()[year_order]
@@ -225,7 +229,7 @@ def run_main():
             #print("3 attmpts ago: " + line_number[x1][-login_attempts].__str__())
             old_time = (line_number[x1][-(login_attempts)].__str__())
 
-            old_time_converted = get_sec_long(old_time)
+            old_time_converted = get_sec_long(old_time)  # convert datetime string to seconds
             log_time_converted = get_sec_long(log_year + ":" + log_day.replace(",","") + ":" + log_time)
 
             time_difference = log_time_converted - old_time_converted   # difference between oldest allowed login attempt and newest
@@ -264,6 +268,7 @@ def run_cmd_line():
 
 def replace(port_number, correct_port):
     for line in fileinput.input("/etc/ssh/sshd_config", inplace = 1):
+        # open sshd_config and update port number
         print line.replace(port_number, str(correct_port)).rstrip()
         # added .rstrip() so that new lines are not created
     print("Updated port.")
@@ -281,7 +286,7 @@ def rotate_ssh_port(port_number):
         if x <= dt.time() <= y:
             print("Port should be: " + z)
             correct_port = z
-            if port_number != z:
+            if port_number != z:  # z is the chosen port for that time of day
                 replace(port_number, correct_port)
             else:
                 print("\nNo change needed for the time.  Port is already " + correct_port + ".")
