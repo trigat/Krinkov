@@ -225,7 +225,7 @@ def run_main():  # STARTING HERE
                 line_number[x1] = [(index,log_time)]
 
         # subtract_one number must be 1 less than login_attempts number
-        if x1 in line_number and len(line_number.get(x1,None)) > 1:
+        if x1 in line_number and len(line_number.get(x1,None)) > subtract_one:
             #print("3 attmpts ago: " + line_number[x1][-login_attempts].__str__())
             old_time = (line_number[x1][-(login_attempts)].__str__())
 
@@ -248,8 +248,10 @@ def run_main():  # STARTING HERE
                 pass
 
         else:
-            print(x1 + ' - Not enought connection attempts to ban.')
+            print(x1 + ' - Not enough connection attempts to ban.')
+            clean_hosts()  # check and clean allow.hosts 
         logfile.close
+        
     except OSError as e:
         print (e)
 
