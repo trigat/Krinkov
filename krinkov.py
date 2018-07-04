@@ -16,9 +16,12 @@
 #
 # Krinkov uses TCP Wrapper to filter connections.
 #
-# --Monitors connection attempts and blacklists IP addresses
+# It Monitors connection attempts and blacklists IP addresses
 # after multiple connection attempts.
-# Blacklist is removed after specified time limit.
+# The blacklist is removed after specified time limit.
+#
+# To unban yourself after being blacklisted, you will have to 
+# attempt to log in twice after blacklist has expired.
 #
 # Optional port rotation setting allows you to auto change port #
 # throughout the day.
@@ -26,12 +29,15 @@
 #            INSTRUCTIONS
 #  1. Adjust custom settings below.
 #  2. Copy krinkov.py to /etc/krinkov.py
-#  3. Create blank file:  /var/log/krinkov.log
+#  3. Create blank log file:  /var/log/krinkov.log
 #  4. Paste the below 2 lines at bottom of /etc/hosts.allow
 #     Do not include # at beginning.
 #
 #  sshd : ALL : spawn /bin/echo "%a $(date)" >> /var/log/krinkov.log \
 #  && python /etc/krinkov.py
+#
+# Each time someone attempts to connect via SSH, their information is
+# stored in krinkov.log and this krinkov.py script is executed.
 #
 #######################################################################
 
@@ -40,6 +46,7 @@ import subprocess
 import fileinput
 import shutil
 import sys
+import os
 import re
 
 ########### Adjust Custom Settings ##############
@@ -70,23 +77,29 @@ ban_expire = 600
 #
 # That would make date=3, time=4, and year=6
 
+# Make sure your date and time format match properly.
+# These defaults will usually work...
+
 # Uncomment and use this for Debian 8.9:
-#date_order = 3
-#time_order = 4
-#year_order = 6
+#month_ = 2
+#date_  = 3
+#time_  = 4
+#year_  = 6
 
 # Uncomment and use this for Ubuntu 16.04:
 # date_order may be 2 in different versions
-date_order = 3
-time_order = 4
-year_order = 6
+month_ = 2
+date_  = 3
+time_  = 4
+year_  = 6
 
 # Uncomment and use this for Solaris 11.3:
-#date_order = 3
-#time_order = 5
-#year_order = 4
+#month_ = 2
+#date_  = 3
+#time_  = 5
+#year_  = 4
 
-# *NOTE* If using Solaris, you'll have to enable TCP Wrappers by 
+# *NOTE* If using Solaris, you'll have to enable TCP Wrappers by
 # typing the below command as root:
 #
 #          inetadm -M tcp_wrappers=TRUE
@@ -112,7 +125,7 @@ Allow_Port_Rotation = True
 
 # Times are set in source code.
 
-# Enter port numbers you want to use.  You can use a port more 
+# Enter port numbers you want to use.  You can use a port more
 # than once.
 p1 = "922"  #port will be active from 00:00 - 06:00 AM
 p2 = "922"  #port will be active from 06:01 - 12:00 PM
@@ -177,7 +190,7 @@ def clean_hosts():
                     if seconds_lapsed > ban_expire: # ban_expire is set by user
                         skipline = 2  # leave out this line & next
                     else:
-                        print("Ban has not expired.")
+                        print("Ban of " + str(ban_expire) + " seconds has not expired.")
                 if not skipline:
                     f2.write(line) # unban by writing over lines
                     f2.close
@@ -201,13 +214,29 @@ def update_hosts_allow(x1):
         print (e)
     clean_hosts()
 
+def remove_last_line(logfile):
+    # remove the last line in file we opened
+    # the line will be replaced with new line later
+    logfile.seek(0, os.SEEK_END)
+    while logfile.tell() and logfile.read(1) != '\n':
+        logfile.seek(-2, os.SEEK_CUR)
+    logfile.truncate()
+
 def get_sec_long(time_str):  # converts date and time string to seconds
-    y, d, h, m, s = time_str.split(':')
-    return int(y) * 31536000 + int(d) * 86400 + int(h) * 3600 + int(m) * 60 + int(s)
+    y, mo, d, h, m, s = time_str.split(':')
+    return int(y) * 31536000 + int(mo) * 2592000 + int(d) * 86400 + int(h) * 3600 + int(m) * 60 + int(s)
 
 def run_main():  # STARTING HERE
+    # This function first grabs the last line entry in the log.
+    # It converts time to 24 hour format and removes the word "AM" or "PM".
+    # It then starts the function over and verifies if the format is correct.
+    # If format is correct, it grabs 2 lines to compare the times.
+    # One line will be the last in the file.  The other will be the line specified
+    # by the user.
+    # Example:
+    # If user set 'login_attempts = 3', the 3rd from last line will be used.
     try:
-        logfile = open('/var/log/krinkov.log', 'r')
+        logfile = open('/var/log/krinkov.log', 'r+')
         line_number = dict()
         for index,line in enumerate(logfile,1):  # scan lines
             if line in ['\n', '\r\n']:  # Error Checking: if not enough lines in var .log
@@ -216,44 +245,97 @@ def run_main():  # STARTING HERE
                 return
             if line:
                 x1 = line.split()[0]  # if line, get IP address
-                log_day  = line.split()[date_order]
-                log_time = line.split()[time_order]  # This will already be in the format of hh:mm:ss
-                log_year = line.split()[year_order]
-            if x1 in line_number :  # if ip address on line
-                line_number[x1].append((log_year + ":" + log_day.replace(",","") + ":" + log_time))
-            else:                                             # .replace(",","") is ued for Solaris 11
-                line_number[x1] = [(index,log_time)]
 
-        # subtract_one number must be 1 less than login_attempts number
-        if x1 in line_number and len(line_number.get(x1,None)) > subtract_one:
-            #print("3 attmpts ago: " + line_number[x1][-login_attempts].__str__())
-            old_time = (line_number[x1][-(login_attempts)].__str__())
+                # Need to convert month text to integer.
+                # Solaris and other OS may spell out the entire month.
+                # Linux abbreviates the month.  Just in case, only grab
+                # the first 3 letters so we can use strptime.
+                grab_month = line.split()[month_]
+                conv_month_to_string = datetime.strptime(grab_month[:3], '%b').month
 
-            old_time_converted = get_sec_long(old_time)  # convert datetime string to seconds
-            log_time_converted = get_sec_long(log_year + ":" + log_day.replace(",","") + ":" + log_time)
+                log_month = str(conv_month_to_string)
+                log_day  = line.split()[date_]
+                log_time = line.split()[time_]  # This will already be in the format of hh:mm:ss
+                log_year = line.split()[year_]
 
-            time_difference = log_time_converted - old_time_converted   # difference between oldest allowed login attempt and newest
-            # print(time_difference)
+            # if IP on line, return the year, day, time
+            # else if key(IP) is not available, list the year, day, time anyways
+            line_number[x1] = line_number.get(x1, []) + [log_year + ":" + log_month + ":" + log_day.replace(",","") + ":" + log_time]
 
-            print(x1 + ' connected ' + login_attempts.__str__() + ' times in ' \
-                + time_difference.__str__() + " seconds.")
+        if "PM" in line and log_time[:2] != "12":
+            log_time_int = int(log_time[:2]) # change to integer
+            hour_24 = (log_time_int + 12)    # add 12
+            mil_time = log_time.replace(log_time[:2], str(hour_24))
+            log_time_24 = line.replace(log_time, mil_time).replace("PM", "")
+            print(line.replace(log_time, mil_time)).replace("PM", "")
 
-            # if login attempts are made within how many seconds?
-            if time_difference < attempts_time:
-                update_hosts_allow(x1)
-            else:
-                print('Not enough connection attempts made in specified time of ' \
-                    + str(attempts_time) + ' seconds.')
-                clean_hosts()
-                pass
+            # remove the last line in file we opened up top
+            # line is going to be replaced with new line
+            remove_last_line(logfile)
 
+            # update line with 24 hours time and remove "PM"
+            print("Removed last line in log")
+            with open("/var/log/krinkov.log", "a") as f:  # open local log for write
+                f.write(line.replace(log_time, mil_time).replace("PM", ""))
+                f.close()
+            run_main()  # then start over
+        # if 12:00 AM, convert to 00:00
+        # don't add 12 if it's already 12 PM
+        elif "AM" in line and log_time[:2] == "12":
+            mil_time = log_time.replace(log_time[:2], "00")
+            log_time_24 = line.replace(log_time, mil_time).replace("AM", "")
+            print(line.replace(log_time, mil_time)).replace("AM", "")
+
+            # remove the last line in file we opened up top
+            # line is going to be replaced with new line
+            remove_last_line(logfile)
+
+            # update line with 24 hours time and remove "AM"
+            print("Removed last line in log")
+            with open("/var/log/krinkov.log", "a") as f:  # open local log for write
+                f.write(line.replace(log_time, mil_time).replace("AM", ""))
+                f.close() 
+            run_main()
+        elif "AM" in line or "PM" in line:  # make sure AM/PM is not in line
+            remove_last_line(logfile)
+            print("Removed AM/PM")
+            with open("/var/log/krinkov.log", "a") as f:  # open local log for write
+                f.write(line.replace("AM", "").replace("PM", ""))
+                f.close() 
+            run_main()
         else:
-            print(x1 + ' - Not enough connection attempts to ban.')
-            clean_hosts()  # check and clean allow.hosts 
-        logfile.close
-        
-    except OSError as e:
-        print (e)
+            # once line is formatted properly, run the below:
+            # subtract_one number must be 1 less than login_attempts number
+            if x1 in line_number and len(line_number.get(x1,None)) > subtract_one:
+                old_time = (line_number[x1][-login_attempts])
+                old_time_converted = get_sec_long(old_time)  # convert datetime string to seconds
+                log_time_converted = get_sec_long(log_year + ":" + log_month + ":" +log_day.replace(",","") + ":" + log_time)
+                # if the date time format has any commas, remove them with replace()
+                time_difference = log_time_converted - old_time_converted   # difference between oldest allowed login attempt and newest
+                print(x1 + ' connected ' + login_attempts.__str__() + ' times in ' \
+                    + time_difference.__str__() + " seconds.")
+
+                # if login attempts are made within how many seconds?
+                if time_difference < attempts_time:
+                    update_hosts_allow(x1)
+                else:
+                    print('Not enough connection attempts made in specified time of ' \
+                        + str(attempts_time) + ' seconds.')
+                    clean_hosts()
+                    pass
+
+            else:
+                print(x1 + ' - Not enough connection attempts to ban.')
+                clean_hosts()  # remove this line if you don't want to do anything until
+                               # set login_attempts have been met
+            logfile.close
+
+    except (IOError, OSError) as e:
+        print("\nMake sure log file exists.  " + str(e) + "\n")
+    except:
+        print("\nLog may not contain any data.")
+        print("Or date and time format may be set up incorrectly.")
+        print("Adjust settings at top of source.\n")
 
 run_main()
 
