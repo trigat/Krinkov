@@ -62,7 +62,7 @@ login_attempts = 3
 # Specified number of login_attempts must be made within
 # this time for ban to kick in:
 # (Number is in seconds.)
-attempts_time = 90
+attempts_time = 120
 
 # Specify seconds before ban expires:
 ban_expire = 600
@@ -179,18 +179,31 @@ def clean_hosts():
                 if skipline:
                     skipline -= 1
                     continue  # Don't do anything with this line
-
                 m = reg.match(line)
-                if m:                # get date from line we grabbed
+                if m:
                     t2 = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S.%f")
                     t1 = present
-                    check_time = ban_time_elapse(t1, t2)
-                    seconds_lapsed = get_sec_short(str(check_time))
-                    print(seconds_lapsed)
-                    if seconds_lapsed > ban_expire: # ban_expire is set by user
+                    bte = ban_time_elapse(t1, t2)
+                    check_time = str(bte)
+                    # print("Elapsed time since ban: " + check_time)
+                    # Sometimes the elapsed ban time which is check_time
+                    # will give you data that is not in xx:xx:xx format.
+                    # We can remove anything that comes before a comma
+                    # such as the amount of days or years.
+                    identifier = ", "
+                    identifier_not_recognized = " "
+                    if identifier in check_time:
+                        converted = check_time.split(identifier)[1]
+                        seconds_lapsed = get_sec_short(str(converted))
+                    elif identifier_not_recognized in check_time:
+                        print("(Check_time format should look like 'xx:xx:xx')")
+                    else:
+                        seconds_lapsed = get_sec_short(str(check_time))
+                    # print(seconds_lapsed)
+                    if seconds_lapsed > ban_expire:
                         skipline = 2  # leave out this line & next
                     else:
-                        print("Ban of " + str(ban_expire) + " seconds has not expired.")
+                        pass
                 if not skipline:
                     f2.write(line) # unban by writing over lines
                     f2.close
